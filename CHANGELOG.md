@@ -4,6 +4,16 @@ All notable changes to the FocusFlow productivity platform.
 
 ---
 
+## [Unreleased] — Durable task saving
+
+### 💾 Tasks always reach your account
+- Every task add, edit, completion, delete, and focus session is queued locally before it is sent and only dropped once Supabase confirms it — a task created offline or during a dropped request still lands in your account
+- Queued changes are retried automatically when the browser comes back online, when the tab regains focus, and at the next sign-in; a banner on the Tasks page shows anything still waiting, with a "Retry now" button
+- A failed load no longer blanks the app: tasks and sessions stay on screen when the fetch errors, and unconfirmed local edits are merged over the server's copy
+- Cached tasks are tied to the account that created them, so a second account signing in on the same browser never sees the first one's data
+
+---
+
 ## [1.1.0] — 2026-07-20 — Accounts, SEO & AI Provider Switch
 
 ### 🔐 Authentication & Authorization

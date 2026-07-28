@@ -32,6 +32,7 @@ Combined with a built-in **Pomodoro focus timer**, **drag-and-drop task organiza
 | Feature | Description |
 |---------|-------------|
 | 🔐 **Accounts** | Email/password auth via Supabase, with row-level security isolating each user's data |
+| 💾 **Durable saving** | Tasks and sessions are queued locally and retried until Supabase confirms them, so nothing is lost offline |
 | 🧠 **AI Task Breakdown** | OpenAI-powered decomposition of complex projects into manageable steps |
 | ⏱️ **Focus Timer** | Pomodoro timer with presets, custom durations, and break tracking |
 | 📋 **Drag & Drop Tasks** | Reactive fluid UI with DND Kit for effortless prioritization |
@@ -85,7 +86,7 @@ src/
 ├── lib/
 │   ├── auth.tsx               # Supabase Auth context
 │   ├── supabase.ts            # Supabase client
-│   ├── sync.ts                # Task/session sync with Supabase
+│   ├── sync.ts                # Task/session sync with Supabase (offline-safe write queue)
 │   └── api.ts                 # AI decompose API client
 ├── store.ts                   # Zustand state management
 └── index.css                  # Full design system
