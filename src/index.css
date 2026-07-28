@@ -1363,6 +1363,30 @@ h3 {
   cursor: grab;
 }
 
+.sync-banner {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  margin-bottom: 1rem;
+  padding: 0.7rem 0.9rem;
+  border: 1px solid color-mix(in srgb, var(--color-accent) 32%, transparent);
+  border-radius: var(--radius-lg);
+  background: color-mix(in srgb, var(--color-accent) 10%, transparent);
+  color: var(--text-secondary);
+  font-size: 0.82rem;
+}
+
+.sync-banner svg {
+  flex: 0 0 auto;
+  color: var(--color-accent-light);
+}
+
+.sync-banner-text {
+  flex: 1;
+  min-width: 12rem;
+}
+
 .ai-decompose-box {
   margin-bottom: 1.25rem;
   padding: 1.35rem;

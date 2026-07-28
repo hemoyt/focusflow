@@ -3,10 +3,14 @@ import { persist } from 'zustand/middleware';
 import {
   fetchUserTasks,
   fetchUserSessions,
-  upsertTaskRemote,
+  saveTaskRemote,
   deleteTaskRemote,
-  insertSessionRemote,
+  saveSessionRemote,
   updateUserMetadata,
+  flushPendingWrites,
+  getPendingTaskWrites,
+  setSyncUser,
+  subscribeSyncStatus,
 } from './lib/sync';
 
 export interface AuthUser {
@@ -57,7 +61,11 @@ export interface FocusFlowState {
   // Auth-scoped data sync
   userId: string | null;
   isSyncing: boolean;
+  /** Changes saved locally that haven't reached the user's account yet. */
+  pendingWrites: number;
+  syncError: string | null;
   hydrateForUser: (user: AuthUser | null) => Promise<void>;
+  retrySync: () => Promise<void>;
 
   // Tasks
   tasks: Task[];
@@ -122,8 +130,15 @@ export const useStore = create<FocusFlowState>()(
       // ── Auth-scoped data sync ──
       userId: null,
       isSyncing: false,
+      pendingWrites: 0,
+      syncError: null,
+
+      retrySync: async () => {
+        await flushPendingWrites(get().userId);
+      },
 
       hydrateForUser: async (user) => {
+        setSyncUser(user?.id ?? null);
         if (!user) {
           set({ userId: null, tasks: [], sessions: [] });
           return;
@@ -134,6 +149,13 @@ export const useStore = create<FocusFlowState>()(
         // whatever this browser already has (e.g. a brand-new account).
         const metadata = user.user_metadata ?? {};
         const patch: Partial<FocusFlowState> = { userId: user.id, isSyncing: true };
+        // Never let one account see what another one left in this browser's
+        // local storage.
+        const previousUserId = get().userId;
+        if (previousUserId && previousUserId !== user.id) {
+          patch.tasks = [];
+          patch.sessions = [];
+        }
         if (typeof metadata.hasCompletedOnboarding === 'boolean') {
           patch.hasCompletedOnboarding = metadata.hasCompletedOnboarding;
         }
@@ -151,13 +173,23 @@ export const useStore = create<FocusFlowState>()(
         }
         set(patch);
 
+        // Push anything this browser still owes the server before reading it
+        // back, so a task created offline isn't erased by the fetch below.
+        await flushPendingWrites(user.id);
+
         const [tasks, sessions] = await Promise.all([
           fetchUserTasks(user.id),
           fetchUserSessions(user.id),
         ]);
         // Bail if the user switched again while this fetch was in flight.
         if (get().userId !== user.id) return;
-        set({ tasks, sessions, isSyncing: false });
+        // A failed fetch returns null — keep what we already have rather than
+        // blanking the app because the network hiccuped.
+        set({
+          tasks: tasks ? mergePendingTasks(tasks, user.id) : get().tasks,
+          sessions: sessions ?? get().sessions,
+          isSyncing: false,
+        });
       },
 
       // ── Tasks ──
@@ -167,7 +199,7 @@ export const useStore = create<FocusFlowState>()(
         const newTask: Task = { id: uid(), text, completed: false, sessions: 0, createdAt: today(), priority };
         set((s) => ({ tasks: [newTask, ...s.tasks] }));
         const userId = get().userId;
-        if (userId) void upsertTaskRemote(userId, newTask);
+        if (userId) void saveTaskRemote(userId, newTask);
       },
 
       addTasks: (items) => {
@@ -181,7 +213,7 @@ export const useStore = create<FocusFlowState>()(
         }));
         set((s) => ({ tasks: [...newTasks, ...s.tasks] }));
         const userId = get().userId;
-        if (userId) newTasks.forEach((t) => void upsertTaskRemote(userId, t));
+        if (userId) newTasks.forEach((t) => void saveTaskRemote(userId, t));
       },
 
       toggleTask: (id) => {
@@ -190,7 +222,7 @@ export const useStore = create<FocusFlowState>()(
         }));
         const userId = get().userId;
         const updated = get().tasks.find((t) => t.id === id);
-        if (userId && updated) void upsertTaskRemote(userId, updated);
+        if (userId && updated) void saveTaskRemote(userId, updated);
       },
 
       deleteTask: (id) => {
@@ -198,7 +230,8 @@ export const useStore = create<FocusFlowState>()(
           tasks: s.tasks.filter((t) => t.id !== id),
           activeTaskId: s.activeTaskId === id ? null : s.activeTaskId,
         }));
-        if (get().userId) void deleteTaskRemote(id);
+        const userId = get().userId;
+        if (userId) void deleteTaskRemote(userId, id);
       },
 
       reorderTasks: (fromIndex, toIndex) =>
@@ -218,7 +251,7 @@ export const useStore = create<FocusFlowState>()(
         }));
         const userId = get().userId;
         const updated = get().tasks.find((t) => t.id === id);
-        if (userId && updated) void upsertTaskRemote(userId, updated);
+        if (userId && updated) void saveTaskRemote(userId, updated);
       },
 
       // ── Timer ──
@@ -245,7 +278,7 @@ export const useStore = create<FocusFlowState>()(
       addSession: (session) => {
         set((s) => ({ sessions: [session, ...s.sessions] }));
         const userId = get().userId;
-        if (userId) void insertSessionRemote(userId, session);
+        if (userId) void saveSessionRemote(userId, session);
       },
 
       // ── AI ──
@@ -259,6 +292,9 @@ export const useStore = create<FocusFlowState>()(
     {
       name: 'focusflow-storage',
       partialize: (state) => ({
+        // Remembering who the cached tasks belong to lets the next sign-in
+        // tell "my data" from "the previous account's data".
+        userId: state.userId,
         tasks: state.tasks,
         sessions: state.sessions,
         timerMinutes: state.timerMinutes,
@@ -271,6 +307,30 @@ export const useStore = create<FocusFlowState>()(
     }
   )
 );
+
+// Keep the store's view of the outbox in step with the sync layer so the UI can
+// tell the user whether their tasks have actually reached their account.
+subscribeSyncStatus(({ pending, error }) => {
+  useStore.setState({ pendingWrites: pending, syncError: error });
+});
+
+/**
+ * Lay local edits that haven't been confirmed yet over the server's copy, so a
+ * task added offline stays visible instead of vanishing on the next fetch.
+ */
+function mergePendingTasks(serverTasks: Task[], userId: string): Task[] {
+  const { upserts, deletedIds } = getPendingTaskWrites(userId);
+  if (upserts.length === 0 && deletedIds.length === 0) return serverTasks;
+
+  const pendingById = new Map(upserts.map((task) => [task.id, task]));
+  const merged = serverTasks
+    .filter((task) => !deletedIds.includes(task.id))
+    .map((task) => pendingById.get(task.id) ?? task);
+
+  const onServer = new Set(merged.map((task) => task.id));
+  const notYetSaved = upserts.filter((task) => !onServer.has(task.id));
+  return [...notYetSaved, ...merged];
+}
 
 // ── Derived helpers (not stored) ──
 export function getTodaysTasks(tasks: Task[]) {

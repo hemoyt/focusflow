@@ -15,7 +15,7 @@ import {
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { GripVertical, Trash2, Play, Plus, Sparkles, Check, Target } from 'lucide-react';
+import { GripVertical, Trash2, Play, Plus, Sparkles, Check, Target, CloudOff, RefreshCw } from 'lucide-react';
 import { useStore, getTodaysTasks } from '../store';
 import type { Task } from '../store';
 import { Link, useNavigate } from 'react-router-dom';
@@ -118,6 +118,8 @@ export default function TaskList() {
     setTimerMinutes,
     decomposeResult,
     clearDecompose,
+    pendingWrites,
+    retrySync,
   } = useStore();
   const navigate = useNavigate();
 
@@ -200,6 +202,22 @@ export default function TaskList() {
           AI Decompose
         </Link>
       </div>
+
+      {/* Unsent changes — they're stored on this device and retried automatically */}
+      {pendingWrites > 0 && (
+        <div className="sync-banner" role="status">
+          <CloudOff size={15} aria-hidden="true" />
+          <span className="sync-banner-text">
+            {pendingWrites === 1 ? '1 change is' : `${pendingWrites} changes are`} saved on this
+            device and waiting to reach your account. They'll sync automatically once you're back
+            online.
+          </span>
+          <button type="button" className="btn btn-ghost btn-sm" onClick={() => void retrySync()}>
+            <RefreshCw size={13} />
+            Retry now
+          </button>
+        </div>
+      )}
 
       {/* Decomposed results banner */}
       {decomposeResult.length > 0 && (
