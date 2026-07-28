@@ -65,7 +65,30 @@ npm run build
 FocusFlow needs two services configured — see [`.env.example`](.env.example) for the full list:
 
 1. **Supabase** — create a project, run [`supabase/schema.sql`](supabase/schema.sql) in the SQL editor, then set `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY`.
+
+   **This step is not optional.** Until the schema has been run, the `tasks` and
+   `timer_sessions` tables don't exist, every save is rejected, and tasks live only in the
+   browser that created them. The script is safe to run as many times as you like.
+
+   Because the keys are `VITE_`-prefixed they are baked in at build time, so setting them
+   in a local `.env` is not enough for the deployed site — add them to the host's
+   environment variables (Vercel: Project Settings → Environment Variables) and redeploy.
 2. **OpenAI** — used by the AI task breakdown feature. The app deploys to Netlify; set `OPENAI_API_KEY` (and optionally `OPENAI_MODEL`) as environment variables in Netlify's site settings — they're read server-side by the edge function at [`netlify/edge-functions/decompose.ts`](netlify/edge-functions/decompose.ts), never exposed to the browser.
+
+## 🩺 Tasks aren't showing up on another device?
+
+Open **Settings → Cloud sync → Check connection** in the running app. It performs a real read
+and a real write against Supabase and reports the exact error. The usual causes:
+
+| What you see | Cause | Fix |
+|---|---|---|
+| `relation "public.tasks" does not exist` | The schema was never run | Run [`supabase/schema.sql`](supabase/schema.sql) in the Supabase SQL editor |
+| `new row violates row-level security policy` | Policies missing or drifted | Re-run the same file — it resets every policy |
+| `Failed to fetch` | Wrong or missing project URL / anon key | Check `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` on the host, then redeploy |
+| Banner on the Tasks page listing waiting changes | Writes are queued and being retried | Nothing is lost — fix the cause above and they flush automatically |
+
+Note that the Tasks page shows **today's** tasks only, so a task created yesterday won't appear
+there today even though it is safely stored. Analytics and Calendar show the full history.
 
 ## 🏗️ Architecture
 

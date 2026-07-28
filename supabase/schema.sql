@@ -33,30 +33,41 @@ create index if not exists timer_sessions_user_id_idx on timer_sessions (user_id
 alter table tasks enable row level security;
 alter table timer_sessions enable row level security;
 
+-- Postgres has no "create policy if not exists", so each policy is dropped
+-- first. That makes this whole file safe to run again at any time — re-running
+-- it is the fastest way to repair a project whose policies drifted.
 drop policy if exists "public access to tasks" on tasks;
 drop policy if exists "public access to timer_sessions" on timer_sessions;
 
+drop policy if exists "select own tasks" on tasks;
 create policy "select own tasks" on tasks
   for select using (auth.uid() = user_id);
 
+drop policy if exists "insert own tasks" on tasks;
 create policy "insert own tasks" on tasks
   for insert with check (auth.uid() = user_id);
 
+drop policy if exists "update own tasks" on tasks;
 create policy "update own tasks" on tasks
   for update using (auth.uid() = user_id) with check (auth.uid() = user_id);
 
+drop policy if exists "delete own tasks" on tasks;
 create policy "delete own tasks" on tasks
   for delete using (auth.uid() = user_id);
 
+drop policy if exists "select own timer_sessions" on timer_sessions;
 create policy "select own timer_sessions" on timer_sessions
   for select using (auth.uid() = user_id);
 
+drop policy if exists "insert own timer_sessions" on timer_sessions;
 create policy "insert own timer_sessions" on timer_sessions
   for insert with check (auth.uid() = user_id);
 
+drop policy if exists "update own timer_sessions" on timer_sessions;
 create policy "update own timer_sessions" on timer_sessions
   for update using (auth.uid() = user_id) with check (auth.uid() = user_id);
 
+drop policy if exists "delete own timer_sessions" on timer_sessions;
 create policy "delete own timer_sessions" on timer_sessions
   for delete using (auth.uid() = user_id);
 
