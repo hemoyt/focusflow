@@ -26,6 +26,35 @@ create table if not exists timer_sessions (
   timestamp timestamptz not null default now()
 );
 
+-- ── Upgrade from the pre-accounts schema ──
+-- FocusFlow 1.0 shipped these tables without a user_id: one shared pile of rows
+-- behind a permissive policy. The `create table if not exists` above skips an
+-- existing table entirely, so a project from that era reaches this point still
+-- missing the column everything below depends on. Add it before it's needed.
+alter table tasks
+  add column if not exists user_id uuid references auth.users (id) on delete cascade;
+alter table timer_sessions
+  add column if not exists user_id uuid references auth.users (id) on delete cascade;
+
+-- Rows created before accounts existed belong to nobody and cannot be
+-- attributed to one now. They keep a null user_id, which the policies below
+-- make invisible and unwritable — no account can read them, and none can claim
+-- them. They are left in place rather than deleted; to clear them out, run:
+--   delete from tasks where user_id is null;
+--   delete from timer_sessions where user_id is null;
+--
+-- Once no orphans remain the column can carry the same NOT NULL a fresh install
+-- gets, so a migrated project converges on the identical shape.
+do $$
+begin
+  if not exists (select 1 from tasks where user_id is null) then
+    alter table tasks alter column user_id set not null;
+  end if;
+  if not exists (select 1 from timer_sessions where user_id is null) then
+    alter table timer_sessions alter column user_id set not null;
+  end if;
+end $$;
+
 create index if not exists tasks_user_id_idx on tasks (user_id);
 create index if not exists timer_sessions_user_id_idx on timer_sessions (user_id);
 
@@ -71,9 +100,5 @@ drop policy if exists "delete own timer_sessions" on timer_sessions;
 create policy "delete own timer_sessions" on timer_sessions
   for delete using (auth.uid() = user_id);
 
--- If you previously ran the old permissive-access version of this schema,
--- run this migration to bring existing tables up to date:
---
--- alter table tasks add column if not exists user_id uuid references auth.users (id) on delete cascade;
--- alter table timer_sessions add column if not exists user_id uuid references auth.users (id) on delete cascade;
--- -- then backfill user_id for existing rows before adding: alter table tasks alter column user_id set not null;
+-- Upgrading from the old permissive-access version of this schema needs no
+-- extra steps — the migration block above handles it. Just run this file.

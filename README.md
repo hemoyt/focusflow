@@ -83,6 +83,7 @@ and a real write against Supabase and reports the exact error. The usual causes:
 | What you see | Cause | Fix |
 |---|---|---|
 | `relation "public.tasks" does not exist` | The schema was never run | Run [`supabase/schema.sql`](supabase/schema.sql) in the Supabase SQL editor |
+| `column "user_id" does not exist` | The project still has the pre-accounts (v1.0) tables | Run the current [`supabase/schema.sql`](supabase/schema.sql) — it migrates them in place, keeping existing rows |
 | `new row violates row-level security policy` | Policies missing or drifted | Re-run the same file — it resets every policy |
 | `Failed to fetch` | Wrong or missing project URL / anon key | Check `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` on the host, then redeploy |
 | Banner on the Tasks page listing waiting changes | Writes are queued and being retried | Nothing is lost — fix the cause above and they flush automatically |
