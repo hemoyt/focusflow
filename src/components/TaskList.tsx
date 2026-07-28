@@ -119,6 +119,7 @@ export default function TaskList() {
     decomposeResult,
     clearDecompose,
     pendingWrites,
+    syncError,
     retrySync,
   } = useStore();
   const navigate = useNavigate();
@@ -211,6 +212,13 @@ export default function TaskList() {
             {pendingWrites === 1 ? '1 change is' : `${pendingWrites} changes are`} saved on this
             device and waiting to reach your account. They'll sync automatically once you're back
             online.
+            {syncError && (
+              <>
+                {' '}
+                Last error: <strong>{syncError}</strong> — Settings → Cloud sync has a connection
+                check.
+              </>
+            )}
           </span>
           <button type="button" className="btn btn-ghost btn-sm" onClick={() => void retrySync()}>
             <RefreshCw size={13} />

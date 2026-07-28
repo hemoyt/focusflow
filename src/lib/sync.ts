@@ -148,6 +148,7 @@ export interface SyncStatus {
 type StatusListener = (status: SyncStatus) => void;
 
 const statusListeners = new Set<StatusListener>();
+let flushChain: Promise<unknown> = Promise.resolve();
 let flushing = false;
 let lastError: string | null = null;
 let currentUserId: string | null = null;
@@ -235,10 +236,20 @@ async function runWrite(write: PendingWrite): Promise<string | null> {
 /**
  * Send everything this browser still owes the server for `userId`.
  * Resolves true when that account's outbox is empty.
+ *
+ * Calls queue behind each other rather than running concurrently, so awaiting
+ * this always means "the outbox has been drained" — sign-in can therefore read
+ * the account back without racing a write that is still on the wire.
  */
-export async function flushPendingWrites(userId: string | null): Promise<boolean> {
-  if (!userId || flushing) return !readQueue().some((w) => w.userId === userId);
+export function flushPendingWrites(userId: string | null): Promise<boolean> {
+  if (!userId) return Promise.resolve(true);
+  const result = flushChain.then(() => drainOutbox(userId));
+  // One failed flush must not break the chain for the next caller.
+  flushChain = result.catch(() => undefined);
+  return result;
+}
 
+async function drainOutbox(userId: string): Promise<boolean> {
   // Writes belonging to another account stay queued until that user signs back
   // in — row-level security would reject them under this session.
   const own = readQueue().filter((w) => w.userId === userId);
@@ -296,6 +307,100 @@ export function deleteTaskRemote(userId: string, taskId: string) {
 export function saveSessionRemote(userId: string, session: TimerSession) {
   enqueue({ kind: 'session-upsert', key: `session:${session.id}`, userId, session });
   return flushPendingWrites(userId);
+}
+
+// ── Connection check ──
+// A real round trip against the user's project, so "my tasks aren't saving"
+// produces the actual Postgres error instead of a shrug.
+
+export interface SyncCheck {
+  ok: boolean;
+  signedIn: boolean;
+  canRead: boolean;
+  canWrite: boolean;
+  /** Tasks Supabase currently holds for this account. */
+  serverTaskCount: number | null;
+  pending: number;
+  error: string | null;
+  /** Plain-language next step for the most common causes. */
+  hint: string | null;
+}
+
+function hintFor(error: string): string {
+  const text = error.toLowerCase();
+  if (text.includes('does not exist') || text.includes('schema cache')) {
+    return "The tasks table isn't in this Supabase project yet. Open the Supabase dashboard → SQL Editor and run supabase/schema.sql.";
+  }
+  if (text.includes('row-level security') || text.includes('violates row-level')) {
+    return 'Row-level security is rejecting the write. Re-run the policy statements at the bottom of supabase/schema.sql.';
+  }
+  if (text.includes('jwt') || text.includes('not authenticated') || text.includes('invalid claim')) {
+    return 'The session is no longer valid. Log out and log back in.';
+  }
+  if (text.includes('failed to fetch') || text.includes('networkerror')) {
+    return 'The browser could not reach Supabase. Check the connection, and that VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY are set wherever the app is deployed.';
+  }
+  return 'Check the Supabase project URL and anon key, and that supabase/schema.sql has been run against this project.';
+}
+
+export async function checkSyncConnection(): Promise<SyncCheck> {
+  const base: SyncCheck = {
+    ok: false,
+    signedIn: false,
+    canRead: false,
+    canWrite: false,
+    serverTaskCount: null,
+    pending: readQueue().length,
+    error: null,
+    hint: null,
+  };
+
+  try {
+    const { data: auth, error: authError } = await supabase.auth.getUser();
+    const userId = auth?.user?.id;
+    if (authError || !userId) {
+      const error = authError?.message ?? 'No signed-in user.';
+      return { ...base, error, hint: hintFor(error) };
+    }
+    base.signedIn = true;
+
+    const { count, error: readError } = await supabase
+      .from('tasks')
+      .select('id', { count: 'exact', head: true })
+      .eq('user_id', userId);
+    if (readError) return { ...base, error: readError.message, hint: hintFor(readError.message) };
+    base.canRead = true;
+    base.serverTaskCount = count ?? 0;
+
+    // Prove the account can actually write. The probe is dated 1970 so it can
+    // never surface in a day's task list even if the cleanup below fails.
+    const probeId = crypto.randomUUID();
+    const { error: writeError } = await supabase.from('tasks').insert({
+      id: probeId,
+      user_id: userId,
+      text: 'FocusFlow connection check',
+      completed: false,
+      sessions: 0,
+      created_at: '1970-01-01',
+      priority: 'low',
+    });
+    if (writeError) return { ...base, error: writeError.message, hint: hintFor(writeError.message) };
+
+    const { error: cleanupError } = await supabase.from('tasks').delete().eq('id', probeId);
+    if (cleanupError) {
+      return {
+        ...base,
+        canWrite: true,
+        error: `Saved a test row but could not remove it: ${cleanupError.message}`,
+        hint: 'Writes work; the delete policy in supabase/schema.sql may be missing.',
+      };
+    }
+
+    return { ...base, ok: true, canWrite: true };
+  } catch (cause) {
+    const error = messageOf(cause);
+    return { ...base, error, hint: hintFor(error) };
+  }
 }
 
 export async function updateUserMetadata(data: Record<string, unknown>) {

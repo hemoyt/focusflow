@@ -1387,6 +1387,54 @@ h3 {
   min-width: 12rem;
 }
 
+.sync-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1.5rem;
+  margin: 0 0 1rem;
+}
+
+.sync-facts dt {
+  color: var(--text-tertiary);
+  font-size: 0.74rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.sync-facts dd {
+  margin: 0.15rem 0 0;
+  color: var(--text-primary);
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.sync-detail {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.55rem;
+  margin: 0 0 1rem;
+  padding: 0.7rem 0.85rem;
+  border-radius: var(--radius-md);
+  font-size: 0.82rem;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.sync-detail svg {
+  flex: 0 0 auto;
+  margin-top: 0.1rem;
+}
+
+.sync-detail-good {
+  background: color-mix(in srgb, var(--color-success) 11%, transparent);
+  color: var(--color-success-light);
+}
+
+.sync-detail-bad {
+  background: color-mix(in srgb, var(--color-danger) 10%, transparent);
+  color: var(--color-danger-light);
+}
+
 .ai-decompose-box {
   margin-bottom: 1.25rem;
   padding: 1.35rem;

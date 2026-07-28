@@ -1,7 +1,21 @@
 import { useState, useEffect } from 'react';
-import { Trash2, Download, AlertTriangle, Sun, Moon, Palette, Check, CircleHelp } from 'lucide-react';
+import {
+  Trash2,
+  Download,
+  AlertTriangle,
+  Sun,
+  Moon,
+  Palette,
+  Check,
+  CircleHelp,
+  CloudCheck,
+  CloudAlert,
+  RefreshCw,
+} from 'lucide-react';
 import { useStore } from '../store';
 import { useAuth } from '../lib/auth';
+import { checkSyncConnection } from '../lib/sync';
+import type { SyncCheck } from '../lib/sync';
 
 const COLOR_OPTIONS = [
   { id: 'forest', label: 'Forest' },
@@ -24,9 +38,14 @@ export default function Settings() {
     accentColor,
     setAccentColor,
     setHasCompletedOnboarding,
+    pendingWrites,
+    syncError,
+    retrySync,
   } = useStore();
   const { user, updateProfile } = useAuth();
   const [showReset, setShowReset] = useState(false);
+  const [checking, setChecking] = useState(false);
+  const [checkResult, setCheckResult] = useState<SyncCheck | null>(null);
   const [fullName, setFullName] = useState('');
   const [savingProfile, setSavingProfile] = useState(false);
   const [profileSaved, setProfileSaved] = useState(false);
@@ -42,6 +61,13 @@ export default function Settings() {
     setSavingProfile(false);
     setProfileSaved(true);
     setTimeout(() => setProfileSaved(false), 2000);
+  }
+
+  async function handleCheckSync() {
+    setChecking(true);
+    await retrySync();
+    setCheckResult(await checkSyncConnection());
+    setChecking(false);
   }
 
   function handleExport() {
@@ -184,6 +210,61 @@ export default function Settings() {
                 onChange={(event) => setBreakMinutes(Math.max(1, Math.min(30, parseInt(event.target.value) || 5)))}
               />
             </div>
+          </div>
+        </section>
+
+        <section className="card" aria-labelledby="sync-title">
+          <h2 className="settings-title" id="sync-title">Cloud sync</h2>
+          <p className="settings-description">
+            Tasks and focus sessions are saved to your account so they follow you to any device.
+            Run a check if something looks like it hasn't synced.
+          </p>
+
+          <dl className="sync-facts">
+            <div>
+              <dt>Waiting to sync</dt>
+              <dd>{pendingWrites === 0 ? 'Nothing — everything is saved' : `${pendingWrites} change${pendingWrites === 1 ? '' : 's'}`}</dd>
+            </div>
+            <div>
+              <dt>On this device</dt>
+              <dd>{tasks.length} tasks · {sessions.length} sessions</dd>
+            </div>
+            {checkResult?.serverTaskCount !== null && checkResult !== null && (
+              <div>
+                <dt>In your account</dt>
+                <dd>{checkResult.serverTaskCount} tasks</dd>
+              </div>
+            )}
+          </dl>
+
+          {syncError && !checkResult && (
+            <p className="sync-detail sync-detail-bad">
+              <CloudAlert size={15} aria-hidden="true" />
+              <span>Last error: {syncError}</span>
+            </p>
+          )}
+
+          {checkResult && (
+            <p className={`sync-detail ${checkResult.ok ? 'sync-detail-good' : 'sync-detail-bad'}`} role="status">
+              {checkResult.ok ? <CloudCheck size={15} aria-hidden="true" /> : <CloudAlert size={15} aria-hidden="true" />}
+              <span>
+                {checkResult.ok ? (
+                  <>Connected. Reading and writing to your account both work.</>
+                ) : (
+                  <>
+                    <strong>{checkResult.error}</strong>
+                    {checkResult.hint && <><br />{checkResult.hint}</>}
+                  </>
+                )}
+              </span>
+            </p>
+          )}
+
+          <div className="settings-actions">
+            <button className="btn btn-ghost" onClick={handleCheckSync} disabled={checking}>
+              <RefreshCw size={16} />
+              {checking ? 'Checking…' : 'Check connection'}
+            </button>
           </div>
         </section>
 
