@@ -39,7 +39,10 @@ alter table timer_sessions
 -- Rows created before accounts existed belong to nobody and cannot be
 -- attributed to one now. They keep a null user_id, which the policies below
 -- make invisible and unwritable — no account can read them, and none can claim
--- them. They are left in place rather than deleted; to clear them out, run:
+-- them. Nothing here deletes them, and you never have to: they are already
+-- sealed off. Clearing them out is purely cosmetic, and if you ever want to,
+-- it goes in a SEPARATE query AFTER this whole file has run at least once
+-- (before that the user_id column does not exist yet and it will fail):
 --   delete from tasks where user_id is null;
 --   delete from timer_sessions where user_id is null;
 --
@@ -102,3 +105,20 @@ create policy "delete own timer_sessions" on timer_sessions
 
 -- Upgrading from the old permissive-access version of this schema needs no
 -- extra steps — the migration block above handles it. Just run this file.
+
+-- Final check. A successful run prints one row reading "ready" in every column;
+-- anything else means the statements above did not all apply.
+select
+  case when count(*) filter (
+    where table_name = 'tasks' and column_name = 'user_id'
+  ) = 1 then 'ready' else 'MISSING user_id' end as tasks_table,
+  case when count(*) filter (
+    where table_name = 'timer_sessions' and column_name = 'user_id'
+  ) = 1 then 'ready' else 'MISSING user_id' end as sessions_table,
+  (
+    select case when count(*) = 8 then 'ready' else count(*) || ' of 8 present' end
+    from pg_policies
+    where schemaname = 'public' and tablename in ('tasks', 'timer_sessions')
+  ) as security_policies
+from information_schema.columns
+where table_schema = 'public' and column_name = 'user_id';
